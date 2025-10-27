@@ -709,6 +709,58 @@ def debug_memory(user_id):
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+       
+# ============================================================================
+# ADMIN CONVERSATION FEED ENDPOINT
+# ============================================================================
+@app.route("/admin/conversations.json", methods=["GET"])
+def admin_conversations():
+    """Provide simplified conversation feed for admin dashboard"""
+    token = request.args.get("token")
+    if token != os.getenv("ADMIN_TOKEN", "spa-admin-token-2025"):
+        return jsonify({"error": "unauthorized"}), 403
+
+    limit = int(request.args.get("limit", 100))
+
+    try:
+        with MEMORY._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT user_id,
+                           last_updated AS ts,
+                           buyer_stage,
+                           engagement_level,
+                           interactions
+                    FROM user_memories
+                    ORDER BY last_updated DESC
+                    LIMIT %s
+                """, (limit,))
+                rows = cur.fetchall()
+
+        items = []
+        for r in rows:
+            # Extract most recent message pair
+            interactions = r[4]
+            if isinstance(interactions, str):
+                try:
+                    interactions = json.loads(interactions)
+                except Exception:
+                    interactions = []
+            if interactions:
+                last = interactions[-1]
+                items.append({
+                    "id": f"{r[0]}_{len(interactions)}",
+                    "ts": r[1].isoformat() if r[1] else "",
+                    "user_id": r[0],
+                    "user_message": last.get("user", ""),
+                    "bot_response": last.get("bot", "")
+                })
+        return jsonify({"items": items})
+
+    except Exception as e:
+        logger.error(f"Error loading admin conversations: {e}")
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 # ============================================================================
 # RUN APPLICATION
